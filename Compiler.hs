@@ -32,11 +32,15 @@ corresponds to the results of the interpreter, you'll receive credit.
 
 -------------------------------------------------------------------------------}
 
--- compileFunction (FunDecl fty name [(aty, arg)] [Stmt]) = (name, ([(aty, arg)], fty, (Block, [(String, Block)])))
 compileFunction :: Clike.TopDecl -> (String, LL.Function)
-compileFunction = error "unimplemented"
--- compileFunction (FunDecl fty name [(aty, arg)] [Stmt]) = (name, ([(aty, arg)], fty, (Block, [(String, Block)])))
---                     where stmts = compileStatements ...
+-- compileFunction = error "unimplemented"
+ compileFunction (FunDecl fty name args stmts) = (name, (args', I64, (first, blocks)))
+                    where ((blocks, startBlk), i') = compileStatements stmts [] [] [] i
+                          first = (instrs, Bra startBlk)
+                          args' = map (\(_, x) -> (I64, show x)) (zip args [1..])
+                          instrs = comcatMap (\((_, n), x) -> [ (Alloca n I64)
+                                                              , (Store (Uid n) I64 (Uid (show x))) 
+                                                              ] ) (zip args [1..])
 
 
 compileStatements :: [Clike.Stmt] -> String -> String -> String -> Int -> (([(String, LL.Block)], String), Int)
@@ -63,27 +67,26 @@ to use to enter those blocks, and finally the updated integer after generating
 fresh names.
 
 -------------------------------------------------------------------------------}
--- clike.Stmt = ExpS Expr | Return Expr | Break | Continue
---           | If Expr Stmt Stmt | While Expr Stmt
---           | Block [Stmt] | Decl Type String
--- LL.Terminator
--- = Ret Type (Maybe Operand)
--- | Bra String
--- | CBr Operand String String
--- i = 5;
+
 compileStatement :: Clike.Stmt -> String -> String -> String -> Int -> (([(String, LL.Block)], String), Int)
--- compileStatement = error "unimplemented"
--- compileStatement (ExpS exp) continueLabel breakLabel nextBlockLabel i = (([(instrs,blk)], nextBlockLabel), updatedi)
---                             where blk = (instrs, term)
---                                   instrs = ...
-compileStatement (Return exp) continueLabel breakLabel nextBlockLabel i = (([(nextBlockLabel,(opInstrs, Ret I64 (Just opLlop)))], nextBlockLabel), i')
-                                where ((opInstrs, opLlop), i') = compileExpression exp i
--- compileStatement Break continueLabel breakLabel nextBlockLabel i = (([(instrs,blk)], s), updatedi)
--- compileStatement Continue continueLabel breakLabel nextBlockLabel i = (([(instrs,blk)], s), updatedi)
--- compileStatement (If exp stmt1 stmt2) continueLabel breakLabel nextBlockLabel i = (([(instrs,blk)], s), updatedi)
--- compileStatement (While exp stmt) continueLabel breakLabel nextBlockLabel i = (([(instrs,blk)], s), updatedi)
--- compileStatement (Block stmts) continueLabel breakLabel nextBlockLabel i = (([(instrs,blk)], s), updatedi)
--- compileStatement (Decl ty strngs) continueLabel breakLabel nextBlockLabel i = (([(instrs,blk)], s), updatedi)
+compileStatement (ExpS exp) continueLabel breakLabel nextBlockLabel i = (([((show i'),(instrs, Bra nextBlockLabel))], (show i')), i'+1)
+                            where ((instrs, op), i') = compileExpression exp i
+compileStatement (Return exp) continueLabel breakLabel nextBlockLabel i = (([((show i'),(instrs, Ret I64 (Just op)))], (show i')), i'+1)
+                            where ((instrs, op), i') = compileExpression exp i
+compileStatement Break continueLabel breakLabel nextBlockLabel i = (([((show i), ([], Bra breakLabel))], (show i)), i+1)
+compileStatement Continue continueLabel breakLabel nextBlockLabel i = (([((show i), ([], Bra continueLabel))], (show i)), i+1)
+compileStatement (If exp stmt1 stmt2) continueLabel breakLabel nextBlockLabel i = ((cond : blocks1 ++ blocks2, show (i2+1)), i2 + 2)
+                            where   ((instrs, op), i') = compileExpression exp i
+                                    ((blocks1, startLbl1), i1) = compileStatement stmt1 continueLabel breakLabel nextBlockLabel i'
+                                    ((blocks2, startLbl2), i2) = compileStatement stmt2 continueLabel breakLabel nextBlockLabel i1
+                                    cond = ((show (i2+1)), (instrs ++ [LL.Icmp (show i2) LL.Eq I1 op (LL.Const 0)], CBr (Uid (show i2)) startLbl1 startLbl2))
+compileStatement (While exp stmt) continueLabel breakLabel nextBlockLabel i = (((cond : block), show (i2+1)), i2 + 2)
+                            where ((instrs, op), i1) = compileExpression exp i
+                                  ((block, startLbl), i2) = compileStatement stmt (show (i2+1)) nextBlockLabel (show (i2+1)) i1
+                                  cond = ((show (i2+1)), (instrs ++ [LL.Icmp (show i2) LL.Eq I1 op (LL.Const 0)], CBr (Uid (show i2)) nextBlockLabel startLbl))
+compileStatement (Block stmts) continueLabel breakLabel nextBlockLabel i = compileStatements stmts continueLabel breakLabel nextBlockLabel i 
+compileStatement (Decl Clike.Int n) continueLabel breakLabel nextBlockLabel i = (([( (show (i)), (instr, Bra nextBlockLabel))], (show i)), i+1)              -- call cpmlSt on st ++ make new block (alloc + store)
+                            where instr = [ (LL.Alloca n I64) ] 
 
 {-------------------------------------------------------------------------------
 
@@ -130,9 +133,9 @@ compileExpression (Clike.Bin binOptr exp1 exp2) i = ((op1Instrs ++ op2Instrs ++ 
                       instr Clike.Gt     = (Uid (show i2), LL.Icmp (show i2) LL.Gt I64 op1Llop op2Llop)
                       instr Clike.Gte    = (Uid (show i2), LL.Icmp (show i2) LL.Ge I64 op1Llop op2Llop)
                       instr Clike.Assign = (op2Llop, LL.Store I64 op1Llop op2Llop)
-compileExpression (Unary Negate exp ) i = (([ LL.Bin (show i1)  Mul I64 opLlop (LL.Const (-1))], (Uid (show i1))), i1+1) -- Mult by -1
+compileExpression (Unary Negate exp ) i = (([ LL.Bin (show i1)  Mul I64 opLlop (LL.Const (-1))], (Uid (show i1))), i1+1) 
                     where ((opInstrs, opLlop), i1) = compileExpression exp i
-compileExpression (Unary Complement exp ) i = (([ LL.Bin (show i1)  LL.Xor I64 opLlop (LL.Const (-1))], (Uid (show i1))), i1+1) -- Xor by -1
+compileExpression (Unary Complement exp ) i = (([ LL.Bin (show i1)  LL.Xor I64 opLlop (LL.Const (-1))], (Uid (show i1))), i1+1) 
                     where ((opInstrs, opLlop), i1) = compileExpression exp i
 compileExpression (Clike.Call s exps) i = ((instrs ++ [LL.Call (show i) I64 s (map (\ops -> (I64, ops)) argOps)], Uid (show i)), i+1)
                     where (instrs, argOps, i') = compileArgs exps i
@@ -151,5 +154,5 @@ your Clike variables on the stack and use Store/Load to get to them.
 compileOperand :: Clike.Operand -> Int -> (([LL.Instruction], LL.Operand), Int)
 compileOperand (Var s) i = (([ (Load (show i) I64 (Uid s)) ], Uid (show i)), i+1)
 compileOperand (Clike.Const i64) i = (([ (Load (show i) I64 (Uid (show i))) ], Uid (show i)), i+1)
--- compileOperand (Dot cOp s) i = (([  (Load (show i) I64 (Uid s)) ], Uid (show i)), i+1)
+compileOperand (Dot cOp s) i = error "unimplemented"
                 
