@@ -33,13 +33,12 @@ corresponds to the results of the interpreter, you'll receive credit.
 -------------------------------------------------------------------------------}
 
 compileFunction :: Clike.TopDecl -> (String, LL.Function)
--- compileFunction = error "unimplemented"
- compileFunction (FunDecl fty name args stmts) = (name, (args', I64, (first, blocks)))
-                    where ((blocks, startBlk), i') = compileStatements stmts [] [] [] i
+compileFunction (FunDecl ty name args stmts) = (name, (args', I64, (first, blocks))) 
+                    where ((blocks, startBlk), i) = compileStatements stmts [] [] [] i
                           first = (instrs, Bra startBlk)
                           args' = map (\(_, x) -> (I64, show x)) (zip args [1..])
-                          instrs = comcatMap (\((_, n), x) -> [ (Alloca n I64)
-                                                              , (Store (Uid n) I64 (Uid (show x))) 
+                          instrs = concatMap (\((_, n), x) -> [ (Alloca n I64)
+                                                              , (Store I64 (Uid n) (Uid (show x))) 
                                                               ] ) (zip args [1..])
 
 
@@ -85,7 +84,7 @@ compileStatement (While exp stmt) continueLabel breakLabel nextBlockLabel i = ((
                                   ((block, startLbl), i2) = compileStatement stmt (show (i2+1)) nextBlockLabel (show (i2+1)) i1
                                   cond = ((show (i2+1)), (instrs ++ [LL.Icmp (show i2) LL.Eq I1 op (LL.Const 0)], CBr (Uid (show i2)) nextBlockLabel startLbl))
 compileStatement (Block stmts) continueLabel breakLabel nextBlockLabel i = compileStatements stmts continueLabel breakLabel nextBlockLabel i 
-compileStatement (Decl Clike.Int n) continueLabel breakLabel nextBlockLabel i = (([( (show (i)), (instr, Bra nextBlockLabel))], (show i)), i+1)              -- call cpmlSt on st ++ make new block (alloc + store)
+compileStatement (Decl Clike.Int n) continueLabel breakLabel nextBlockLabel i = (([( (show (i)), (instr, Bra nextBlockLabel))], (show i)), i+1)              
                             where instr = [ (LL.Alloca n I64) ] 
 
 {-------------------------------------------------------------------------------
@@ -154,5 +153,6 @@ your Clike variables on the stack and use Store/Load to get to them.
 compileOperand :: Clike.Operand -> Int -> (([LL.Instruction], LL.Operand), Int)
 compileOperand (Var s) i = (([ (Load (show i) I64 (Uid s)) ], Uid (show i)), i+1)
 compileOperand (Clike.Const i64) i = (([ (Load (show i) I64 (Uid (show i))) ], Uid (show i)), i+1)
-compileOperand (Dot cOp s) i = error "unimplemented"
+compileOperand (Dot cOp s) i = ((instrs, Uid (show i')), i'+1)
+                    where ((instrs, op), i') = compileOperand cOp i
                 
