@@ -31,7 +31,7 @@ instance Printable Operand
 spaces = intercalate " "
 
 llvmRel Eq = "eq"
-llvmRel Neq = "neq"
+llvmRel Neq = "ne"
 llvmRel Gt = "sgt"
 llvmRel Ge = "sge"
 llvmRel Lt = "slt"

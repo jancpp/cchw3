@@ -3,7 +3,7 @@ int function(int x) {
   i = 0;
   while (x >= 0) {
     x = x - 1;
-    if (x & 7) continue;
+    if (x & 7 != 0) continue;
     i = i + 1;
   }
   return i;
